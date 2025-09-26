@@ -1,29 +1,49 @@
 import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, ILike } from 'typeorm';
+import { Repository, ILike, FindOptionsWhere } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { User } from './entities/user.entity';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 
+type UserWithoutPassword = Omit<User, 'password'>;
+
 @Injectable()
 export class UsersService {
   constructor(@InjectRepository(User) private usersRepo: Repository<User>) {}
 
-  async create(dto: CreateUserDto) {
-    const u1 = await this.usersRepo.findOne({ where: { username: dto.username } });
-    if (u1) throw new ConflictException('Username already exists');
+  private sanitize(user: User | null): UserWithoutPassword | null {
+    if (!user) return null;
 
-    const u2 = await this.usersRepo.findOne({ where: { email: dto.email } });
-    if (u2) throw new ConflictException('Email already exists');
-
-    const hashed = await bcrypt.hash(dto.password, 10);
-    const user = this.usersRepo.create({ ...dto, password: hashed });
-    return this.usersRepo.save(user);
+    const { password, ...rest } = user as any;
+    return rest as UserWithoutPassword;
   }
 
-  findOne(condition: any) {
+  async create(dto: CreateUserDto) {
+    const hashed = await bcrypt.hash(dto.password, 10);
+    const user = this.usersRepo.create({ ...dto, password: hashed });
+    try {
+      const saved = await this.usersRepo.save(user);
+      return this.sanitize(saved);
+    } catch (err: unknown) {
+
+      const e: any = err;
+      if (e && e.code === '23505') {
+        throw new ConflictException('User with same email or username already exists');
+      }
+      throw err;
+    }
+  }
+
+  findOne(condition: FindOptionsWhere<User>) {
     return this.usersRepo.findOne({ where: condition });
+  }
+
+  async findByUsernameWithPassword(username: string) {
+    return this.usersRepo.findOne({
+      where: { username },
+      select: ['id', 'username', 'password', 'email', 'avatar', 'about', 'createdAt', 'updatedAt'],
+    });
   }
 
   findManyBySearch(q: string) {
@@ -33,29 +53,25 @@ export class UsersService {
     });
   }
 
-  async updateOne(condition: any, updates: UpdateUserDto) {
+  async updateOne(condition: FindOptionsWhere<User>, updates: UpdateUserDto) {
     const user = await this.findOne(condition);
     if (!user) throw new NotFoundException('User not found');
     if (updates.password) {
       updates.password = await bcrypt.hash(updates.password, 10);
     }
     Object.assign(user, updates);
-    await this.usersRepo.save(user);
-    const { password, ...safe } = user as any;
-    return safe;
+    const saved = await this.usersRepo.save(user);
+    return this.sanitize(saved);
   }
 
-  async removeOne(condition: any) {
+  async removeOne(condition: FindOptionsWhere<User>) {
     const user = await this.findOne(condition);
     if (!user) throw new NotFoundException('User not found');
     await this.usersRepo.remove(user);
     return { removed: true };
   }
 
-  // helpers for controllers
-  async getWishesOfUser(userId: number, wishesRepo?: Repository<any>) {
-    // preferable: inject Wishes repo in module; but to keep module boundaries light,
-    // we'll query relations via findOne with relations
+  async getWishesOfUser(userId: number) {
     const user = await this.usersRepo.findOne({ where: { id: userId }, relations: ['wishes'] });
     return user?.wishes || [];
   }
@@ -63,8 +79,7 @@ export class UsersService {
   async findByUsernamePublic(username: string) {
     const user = await this.usersRepo.findOne({ where: { username } });
     if (!user) throw new NotFoundException('User not found');
-    const { password, email, ...publicUser } = user as any; // remove sensitive fields (email sometimes allowed but spec had public DTO without email)
-    return publicUser;
+    return this.sanitize(user);
   }
 
   async getWishesByUsername(username: string) {

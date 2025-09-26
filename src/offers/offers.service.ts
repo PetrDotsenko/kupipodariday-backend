@@ -3,7 +3,6 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Offer } from './entities/offer.entity';
 import { CreateOfferDto } from './dto/create-offer.dto';
-import { WishesService } from '../wishes/wishes.service';
 import { Wish } from '../wishes/entities/wish.entity';
 import { User } from '../users/entities/user.entity';
 
@@ -11,11 +10,11 @@ import { User } from '../users/entities/user.entity';
 export class OffersService {
   constructor(
     @InjectRepository(Offer) private offersRepo: Repository<Offer>,
-    private wishesService: WishesService,
+    @InjectRepository(Wish) private wishRepo: Repository<Wish>,
   ) {}
 
   async create(itemId: number, dto: CreateOfferDto, user: User) {
-    const wish = await this.wishesService.findOne({ id: itemId });
+    const wish = await this.wishRepo.findOne({ where: { id: itemId }, relations: ['owner'] });
     if (!wish) throw new NotFoundException('Wish not found');
 
     if (wish.owner.id === user.id) throw new BadRequestException('Cannot contribute to your own wish');
@@ -31,8 +30,8 @@ export class OffersService {
     await this.offersRepo.save(offer);
 
     wish.raised = Number(wish.raised) + amount;
-    // save updated raised
-    await (this.wishesService as any).wishesRepo.save(wish).catch(() => {}); // eslint-disable-line
+    await this.wishRepo.save(wish);
+
     return offer;
   }
 

@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, FindOptionsWhere } from 'typeorm';
 import { Wish } from './entities/wish.entity';
 import { CreateWishDto } from './dto/create-wish.dto';
 import { UpdateWishDto } from './dto/update-wish.dto';
@@ -15,7 +15,7 @@ export class WishesService {
     return this.wishesRepo.save(w);
   }
 
-  findOne(condition: any) {
+  findOne(condition: FindOptionsWhere<Wish>) {
     return this.wishesRepo.findOne({ where: condition, relations: ['offers'] });
   }
 
@@ -27,12 +27,11 @@ export class WishesService {
     return this.wishesRepo.find({ order: { copied: 'DESC' }, take });
   }
 
-  async updateOne(condition: any, updates: UpdateWishDto, user: User) {
+  async updateOne(condition: FindOptionsWhere<Wish>, updates: UpdateWishDto, user: User) {
     const wish = await this.findOne(condition);
     if (!wish) throw new NotFoundException('Wish not found');
     if (wish.owner.id !== user.id) throw new ForbiddenException('Only owner can edit');
 
-    // if offers exist, cannot change price
     if (updates.price !== undefined && wish.offers && wish.offers.length > 0) {
       throw new BadRequestException('Cannot change price when offers exist');
     }
@@ -41,7 +40,7 @@ export class WishesService {
     return this.wishesRepo.save(wish);
   }
 
-  async removeOne(condition: any, user: User) {
+  async removeOne(condition: FindOptionsWhere<Wish>, user: User) {
     const wish = await this.findOne(condition);
     if (!wish) throw new NotFoundException('Wish not found');
     if (wish.owner.id !== user.id) throw new ForbiddenException('Only owner can delete');
