@@ -7,8 +7,9 @@ import { AuthGuard } from '@nestjs/passport';
 export class WishlistsController {
   constructor(private wishlistsService: WishlistsService) {}
 
+  @UseGuards(AuthGuard('jwt'))
   @Get()
-  findAll() {
+  findAll(@Request() req) {
     return this.wishlistsService.findAll();
   }
 
